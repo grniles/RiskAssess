@@ -1,0 +1,429 @@
+---
+title: "Final Project"
+author: "Glenn NIles"
+date: "February 24, 2019"
+output: word_document
+fontsize: 12pt
+---
+## Section 1: Executive Summary
+This report provieds an analysis of the evaluation of the banks approach to accepting loans and how to increase the likelihood of giving loans that will have a better chance of being paid back as well as increasing the bank's profits. Methods of analysis include logistic regression based on loans given out by the bank. The model was tested by accuracy and profitability. All data and computations are included in the rest of the report. Results of the data show that the bank could substantially increase their profitability in by using the approach used here to determine which factors indicate an applicant will successfully pay back their loan. Following the model used to maximize profitability we can see a $3.6 million increase in profits. While an approach that creates a more accurate model for giving out loans that will be successfully paid back it is substantially lower than the profitability model. A profit of \$2.4 million is still returned by the model. This would involve giving out less risky loans in return for a lower profit.
+
+It is recommended that the model for maximized profitability is used in the future. Accepting more risky loans is still more profitable than maximizing the amount of good loans given out.
+
+It should be noted that this model is only 73% accurate for the maximized profitability model and 79% accurate for the maximized amount of good loans. While this is very good it is recommended that more data continue to be taken in order to continue to improve the model in order to maximize not only profitability but the likelihood that bad loans will not be given out.
+
+```{r, echo=FALSE, results='hide'}
+library(ggplot2)
+library(gridExtra)
+library(dplyr)
+```
+
+## Load Data
+```{r}
+loans <- read.csv("loans50k.csv")
+```
+
+
+
+## Section 2: Introduction
+A .csv file is provided containing 50000 loan applicants, the goal is to predict which of them are likely to default on their loans using logistic regression. The dataset contains 32 variables some of which we can use as predictor variables. The motivation behind this is to help the bank make sounder decisions and have more information to work with when issuing loans. The objective here is to predict the likelihood of default and ass the model's ability to predict well. We will begin with some data cleaning and exploratory analysis to determine which variables could be useful as predictor variables. 
+
+## Section 3: Preparing and Cleaning the Data
+```{r,results='hide', echo=FALSE}
+# view top portion of dataset
+head(loans)
+```
+
+A new column was made called 'Standing' that was used to categorize loan status' into simply 'Good' and 'Bad.' Loans that were current, in a grace period or less than 120 days late were removed from the dataset as they aren't relevant for this analysis.
+
+```{r, results='hide', echo=FALSE}
+# Convert status into standing variable
+loans$standing[loans$status=='Fully Paid'] <- "Good"
+loans$standing[loans$status=='Charged Off'] <- 'Bad'
+loans$standing[loans$status=='Default'] <- 'Bad'
+# Remove unnecessary rows
+loansClean <- loans[!loans$status=='Current',]
+loansClean <- loansClean[!loansClean$status=='In Grace Period',]
+loansClean <- loansClean[!loansClean$status=='Late (16-30 days)',]
+loansClean <- loansClean[!loansClean$status=='Late (31-120 days)',]
+head(loansClean)
+```
+
+The column 'loanID' was removed as it has nothing to do with the loan outside of being an identifier.
+
+'totalPaid' was removed as it can't be used as a predictor variable since it can only be determined after a loan is issued
+
+'state' was removed since it doesn't seem like geography, at least at a state level, is an indicator of loan repayment. It was clear that the amount of loans per state was based on population. States with higher populations, in general, had more loans than states with lower populations.
+
+'employment' was removed since there were so many different jobs listed that it would be difficult to break them down into groups that would be useful for analysis.
+
+This left me with 29 variables to work with.
+
+```{r, results='hide', echo=FALSE}
+# remove unnecessary variables
+loansClean[c('loanID', 'state', 'employment', 'status')] <-NULL
+head(loansClean)
+```
+
+
+
+```{r,echo=FALSE}
+# View all of the reasons a loan was taken out
+table(loansClean$reason)
+```
+If the reason for taking the loan was for renewable energy or weddings the data was added to the 'other' value since there weren't enough occurences of either of those to be able to use in analysis.
+
+```{r, echo=FALSE, results='hide'}
+# condense less used reasons to other
+loansClean$reason[loansClean$reason == 'renewable_energy'] <- 'other'
+loansClean$reason[loansClean$reason == 'wedding'] <- 'other'
+```
+
+```{r,echo=FALSE, results='hide'}
+# reprint table 
+table(loansClean$reason)
+```
+
+```{r,echo=FALSE}
+# Look where the NAs occur
+sum(is.na(loansClean))
+colSums(is.na(loansClean))
+```
+
+Seeing as there is 782 NA values in a dataset of 34656 rows, most of these are in bcOpen and bcRatio. I'm going to make the assumption that bcRatio will be similar to revolRatio and bcOpen will be similar to totalBal and totalRevLim. Several of the rows that have missing values have multiple missing values in that row. Because of this I feel comfortable removing all of these rows and will leave me with 34271 rows left in the dataset.
+
+```{r, echo=FALSE, results='hide'}
+# Remove NAs
+cleanedLoan <- na.omit(loansClean)
+```
+
+## Section 4: Exploring and Transforming the data
+
+
+```{r,echo=FALSE}
+# Transform variables
+cleanedLoan$payment <- sqrt(cleanedLoan$payment)
+cleanedLoan$income <- log(cleanedLoan$income)
+cleanedLoan$openAcc <- (cleanedLoan$openAcc)^(1/3)
+cleanedLoan$totalAcc <- sqrt(cleanedLoan$totalAcc)
+cleanedLoan$totalBal <- (cleanedLoan$totalBal)^(1/3)
+cleanedLoan$accOpen24 <- (cleanedLoan$accOpen24)^(1/3)
+cleanedLoan$avgBal <- (cleanedLoan$avgBal)^(1/3)
+cleanedLoan$bcOpen <- (cleanedLoan$bcOpen)^(1/3)
+cleanedLoan$totalLim <- (cleanedLoan$totalLim)^(1/3)
+cleanedLoan$totalRevBal <- (cleanedLoan$totalRevBal)^(1/3)
+cleanedLoan$totalIlLim <- (cleanedLoan$totalIlLim)^(1/3)
+
+
+```
+
+Many of the variables in this dataset are highly skewed. In an attempt to reduce the amount of extreme values and to give the variables a more normal shape the variables were transformed. Through trial and error and examining the histograms I either took the square root, the cube root or the natural logarithm of the variables.
+
+The variables, 'payment' and 'totalAcc' were transformed by the square root.
+
+The variables, 'openAcc,' 'totalBal,' 'accopen24,' 'avgBal,' 'bcOpen,' 'totalLim,' 'totalRevBal,' and 'totalILim' were transformed by the cube root.
+
+The natural logarithm was used to transform the variables 'income'
+
+```{r}
+# Print side-by-side boxplots comparing good to bad loans
+par(mfrow=c(2,2))
+boxplot(cleanedLoan$amount~cleanedLoan$standing, main='Loan Amount')
+boxplot(cleanedLoan$rate~cleanedLoan$standing, main='Interest Rate')
+boxplot(cleanedLoan$income~cleanedLoan$standing, main='Income')
+boxplot(cleanedLoan$totalLim~cleanedLoan$standing, main='Total Limit')
+```
+
+
+
+
+```{r}
+# More boxplots
+par(mfrow=c(2,2))
+boxplot(cleanedLoan$debtIncRat~cleanedLoan$standing, main='Debt to Income Ratio')
+boxplot(cleanedLoan$inq6mth~cleanedLoan$standing, main='Inquiries past 6 months')
+boxplot(cleanedLoan$openAcc~cleanedLoan$standing, main='Open Accounts')
+boxplot(cleanedLoan$accOpen24~cleanedLoan$standing, main='Accounts open last 24 months')
+```
+
+```{r,echo=FALSE}
+p1 <- ggplot(cleanedLoan, aes(x=amount, fill=standing)) + geom_density(alpha=0.5) + ggtitle('Amount')
+p2 <- ggplot(cleanedLoan, aes(x=rate, fill=standing)) + geom_density(alpha=0.5) + ggtitle('Rate')
+p3 <- ggplot(cleanedLoan, aes(x=totalLim, fill=standing)) + geom_density(alpha=0.5) + ggtitle('Total Limit')
+p4 <- ggplot(cleanedLoan, aes(x=income, fill=standing)) + geom_density(alpha=0.5) + ggtitle('Income')
+grid.arrange(p1,p2,p3,p4,nrow=2,ncol=2)
+```
+
+
+
+
+```{r, echo=FALSE}
+p5 <- ggplot(cleanedLoan, aes(x=debtIncRat, fill=standing)) + geom_density(alpha=0.5) + ggtitle('Debt to Income Ratio')
+p6 <- ggplot(cleanedLoan, aes(x=inq6mth, fill=standing)) + geom_density(alpha=0.5) + ggtitle('Inquiries last 6 months')
+p7 <- ggplot(cleanedLoan, aes(x=openAcc, fill=standing)) + geom_density(alpha=0.5) + ggtitle('Open Accounts')
+grid.arrange(p5,p6,p7,nrow=2,ncol=2)
+```
+
+
+
+
+```{r, echo=FALSE}
+# bar graph for length of loan
+b1 <- ggplot(cleanedLoan, aes(x=length, fill=standing)) + geom_bar(position='dodge') + ggtitle('Length of Loan')
+b2 <- ggplot(cleanedLoan, aes(x=grade, fill=standing)) + geom_bar(position='dodge') + ggtitle('Grade')
+b3 <- ggplot(cleanedLoan, aes(x=home, fill=standing)) + geom_bar(position='dodge') + ggtitle('Home Ownership')
+grid.arrange(b1,b2,b3,nrow=2,ncol=2)
+```
+
+
+
+
+It looks to me like there may be several variables that may be indicative of what might help determine a good loan from a bad loan. Interest rate seems to be the one that sticks out the most but since people with better credit get better interest rates I'm wondering if the interest rate might be dependent on some of the other factors here.
+
+The size of the loan and a person's income seem to play a large part in determining loan standing.
+
+Total limit is interesting to me because there seems to be a cutoff where lower limits have more bad loans and higher limits having more good standings.
+
+The debt to income ration seems to play a role as well. This makes sense to me.
+
+In the categorical variables it seems like the credit grade is a strong indicator of loan standing.
+
+Its hard to tell and I want to explore it more, but home ownership may play a role in the standing of a loan.
+
+## Section 5: The Logistic Model
+The cleaned data will be split into two datasets. 80% of cleaned data will be turned into training data while the remaining 20% will be used as testing data. 
+
+```{r, echo=FALSE}
+# Split cleanedLoan into two datasets, 80% of cases will be training data and the rest will be the test data
+cleanedLoan$standing <- factor(cleanedLoan$standing)
+set.seed(42) # Make data reproducible
+preLoanSplit <- sample.int(n=nrow(cleanedLoan), size=floor(0.80*nrow(cleanedLoan)), replace = F)
+trainingLoan <- cleanedLoan[preLoanSplit, ]
+testingLoan <- cleanedLoan[-preLoanSplit, ]
+```
+
+
+```{r, echo=FALSE}
+# Remove Total Paid from training set
+trainingLoan['totalPaid'] <-NULL
+trainingLoan['Profitable'] <- NULL
+```
+
+```{r}
+# logistic regression model
+loanReg <- glm(trainingLoan$standing~., data=trainingLoan, family='binomial')
+summary(loanReg)
+```
+
+```{r}
+predictLoan <- predict(loanReg, testingLoan, type='response')
+
+threshhold <- 0.5  
+predLoan <- cut(predictLoan, breaks=c(-Inf, threshhold, Inf), 
+                labels=c("Good", "Bad"))  
+cTab <- table(testingLoan$standing, predLoan) 
+addmargins(cTab)
+
+p <- sum(diag(cTab)) / sum(cTab)  
+print(paste('Proportion correctly predicted = ', p)) 
+```
+
+
+I believe this model would be considered adequate. Its not the best as it predicted 79% of the loans correctly. 64% of the of good loans were correctly predicted and 83% of bad loans were correctly predicted. I think this could be improved substantially. Logistic regression will be used on all remaining predictors in the training data. The regression model will be used on the testing data and a contingency table will be produced to assess the accuracy of the model. 
+
+## Section 6: Optimizing the Threshold Accuracy
+The previous threshold of 0.5 could be adjusted to correctly predict more bad loans. Throughout this section the threshold value will be manipulated in an attempt to maximized to change the proportion of correctly predicted good and bad loans. A graph will be produced to show the accuracies vs the thresholds used.
+
+```{r}
+# Low threshold
+threshhold <- 0.1  
+predLoan <- cut(predictLoan, breaks=c(-Inf, threshhold, Inf), 
+                labels=c("Good", "Bad")) 
+cTab <- table(testingLoan$standing, predLoan) 
+addmargins(cTab)
+
+p <- sum(diag(cTab)) / sum(cTab) 
+print(paste('Proportion correctly predicted = ', p)) 
+```
+
+At low threshold, 0.1 the proportion of correctly predicted loans drops to 77%
+
+```{r}
+# High threshold
+threshhold <- 0.9  
+predLoan <- cut(predictLoan, breaks=c(-Inf, threshhold, Inf), 
+                labels=c("Good", "Bad")) 
+cTab <- table(testingLoan$standing, predLoan) 
+addmargins(cTab)
+
+p <- sum(diag(cTab)) / sum(cTab)
+print(paste('Proportion correctly predicted = ', p)) 
+```
+
+At a high threshold, 0.9, the proportion of correctly predicted loans decreases to 41%
+
+
+```{r, echo=FALSE}
+# Thresholds 0.1 to 0.9
+thresholds <- seq(0.1,0.9,0.05)
+accuracy <- NULL
+for(i in seq(along=thresholds)){
+  predLoan <- cut(predictLoan, breaks=c(-Inf, thresholds[i], Inf), 
+                labels=c("Good", "Bad"))
+  cTab <- table(testingLoan$standing, predLoan) 
+  addmargins(cTab)
+
+  p[i] <- sum(diag(cTab)) / sum(cTab)
+   
+}
+print(paste('Proportion correctly predicted = ', p))
+```
+The proportion correctly predicted for each tested threshold is as follows:
+
+Proportion 0.10 = 0.779
+Proportion 0.15 = 0.779
+Proportion 0.20 = 0.779
+Proportion 0.25 = 0.779
+Proportion 0.30 = 0.780
+Proportion 0.35 = 0.782
+Proportion 0.40 = 0.787
+Proportion 0.45 = 0.792
+Proportion 0.50 = 0.793
+Proportion 0.55 = 0.789
+Proportion 0.60 = 0.784
+Proportion 0.65 = 0.766
+Proportion 0.70 = 0.739
+Proportion 0.75 = 0.691
+Proportion 0.80 = 0.628
+Proportion 0.85 = 0.540
+Proportion 0.90 = 0.414
+
+```{r}
+# Plot thresholds vs accuracy
+plot(thresholds, p, pch=19, type='b', col='steelblue',
+     main='Logistic Regression', xlab='Cutoff Level', ylab='Accuracy%')
+```
+
+```{r}
+# High threshold
+threshhold <- 0.45  
+predLoan <- cut(predictLoan, breaks=c(-Inf, threshhold, Inf), 
+                labels=c("Good", "Bad")) 
+cTab <- table(testingLoan$standing, predLoan) 
+addmargins(cTab)
+
+p <- sum(diag(cTab)) / sum(cTab)
+print(paste('Proportion correctly predicted = ', p)) 
+```
+
+According to the plot it appears that from 0.1 to 0.4 is fairly constant, there is a very minor uptick at 0.5 before it quickly drops off in accuracy after that. 0.45 appears to be the best threshold value for this model having an accuracy of 79%.
+
+## Section 7: Optimizing the Threshold for Profit
+From the banks perspective the most important feature of the model is how it changes the overall profit. The threshold analysis will be repeated again but this time focusing on maximizing the profit. The profit will be computed and the assumption will be made that all bad loans predicted will be rejected.
+
+```{r}
+# Create profit column
+testingLoan$profit <- (testingLoan$totalPaid - testingLoan$amount)
+sum(testingLoan$profit)
+```
+
+
+```{r}
+threshold <- 0.5  
+predLoan <- cut(predictLoan, breaks=c(-Inf, threshold, Inf), 
+                labels=c("Bad", "Good"))  
+testingLoan$Profitable <- predLoan
+sum(testingLoan[testingLoan$Profitable=="Good",]$profit)
+```
+
+At a threshold of 0.5 the profits would be $2403660.00.
+
+```{r, echo=FALSE}
+threshold <- 0.1 
+predLoan <- cut(predictLoan, breaks=c(-Inf, threshold, Inf), 
+                labels=c("Bad", "Good"))  
+testingLoan$Profitable <- predLoan
+sum(testingLoan[testingLoan$Profitable=="Good",]$profit)
+```
+
+At a threshold of 0.1 the profits would be $733522.50
+
+```{r,echo=FALSE}
+threshold <- 0.9  
+predLoan <- cut(predictLoan, breaks=c(-Inf, threshold, Inf), 
+                labels=c("Bad", "Good"))  
+testingLoan$Profitable <- predLoan
+sum(testingLoan[testingLoan$Profitable=="Good",]$profit)
+```
+
+At a threshold of 0.9 the profits would be $1459445.00.
+
+```{r,echo=FALSE}
+# Thresholds 0.1 to 0.9
+thresholds <- seq(0.1,0.9,0.1)
+prof <- NULL
+for(i in seq(along=thresholds)){
+predLoan <- cut(predictLoan, breaks=c(-Inf, thresholds[i], Inf), 
+                labels=c("Good", "Bad"))  
+cTab <- table(testingLoan$standing, predLoan) 
+addmargins(cTab)
+
+pr <- sum(diag(cTab)) / sum(cTab) 
+
+
+testingLoan$Profitable <- predLoan
+prof[i] <- sum(testingLoan$profit, testingLoan$Profitable=="Good")
+
+   
+}
+
+```
+
+```{r}
+thresholds <- seq(0.1,0.9,0.05)  
+prof <- NULL
+for(i in seq(along=thresholds)){
+  predLoan <- cut(predictLoan, breaks=c(-Inf, thresholds[i], Inf), 
+                labels=c("Bad", "Good"))  
+  testingLoan$Profitable <- predLoan
+  prof[i] <- sum(testingLoan[testingLoan$Profitable=="Good",]$profit)
+}
+
+```
+
+```{r,echo=FALSE}
+# Plot thresholds vs accuracy
+plot(thresholds, prof, pch=19, type='b', col='steelblue',
+     main='Profitability', xlab='Cutoff Level', ylab='profit')
+```
+
+```{r}
+max(prof)
+```
+
+```{r}
+threshhold <- 0.7
+predLoan <- cut(predictLoan, breaks=c(-Inf, threshhold, Inf), 
+                labels=c("Bad", "Good")) 
+cTab <- table(testingLoan$standing, predLoan) 
+addmargins(cTab)
+
+p <- sum(diag(cTab)) / sum(cTab)
+print(paste('Proportion correctly predicted = ', p))
+```
+
+Profitability has a large swing upwards near 0.4 seems to maximize at 0.7 before falling off sharply again. The maximum profits are $3,590,864.00. The proportion correctly predicted is 73%.
+
+## Section 8: Results Summary
+5816517
+
+Applying a logistic regression to the data set I was able to create a model that predicted correctly 79% of the time. This seems rather low and I believe it could be improved with some more work to become more accurate.
+After running through thresholds 0.1 to 0.9 I was able to determine that a threshold of 0.5 was the most accurate in determining good and bad loans. 
+
+Using the same methods but applied towards profitability I was able to determine the that threshold of 0.7 is the most profitable giving 73% correctly predicteed values. While this value is higher than all other thresholds it also involves in giving out riskier loans that may not be paid back based on the accuracy from the previous section. The bank should take this into consideration as there may be an increased risk using the more profitable model than the more accurate one. But the profits of using the higher threshold for profits is substantially greater(\$3,590,864.00. compared to $2,403,660.00). The modelled profits are greater than the unmodelled profits. The unmodelled profit is \$733,522.50 which shows the model is significantly better than the umodelled data.
+
+I believe it would be wiser to take the more profitable approach here rather than the more accurate approach as there is only a 6% difference in accuracy while the profit is significantly higher.
+
+
+
+
